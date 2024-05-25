@@ -86,7 +86,6 @@ func (r *Repository) InsertDataWithBulk(ctx context.Context, tableName string, d
 	if err != nil {
 		return err
 	}
-	fmt.Println(path.Join(r.driver.Name(), tableName))
 	err = r.driver.Table().Do( // Do retry operation on errors with best effort
 		ctx, // context manage exiting from Do
 		func(ctx context.Context, s table.Session) (err error) { // retry operation
