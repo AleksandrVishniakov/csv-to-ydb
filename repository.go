@@ -77,6 +77,36 @@ func (r *Repository) InsertData(ctx context.Context, tableName string, data [][]
 	return nil
 }
 
+func (r *Repository) InsertDataWithBulk(ctx context.Context, tableName string, dataCh chan []string) (err error) {
+	primaryKey, columns, err := r.tableColumnsWithPrimary(ctx, tableName)
+	if err != nil {
+		return err
+	}
+	lastId, err := r.lastTableId(ctx, tableName, primaryKey)
+	if err != nil {
+		return err
+	}
+	err = r.driver.Table().Do( // Do retry operation on errors with best effort
+		ctx, // context manage exiting from Do
+		func(ctx context.Context, s table.Session) (err error) { // retry operation
+			rows := make([]types.Value, 0)
+			for data := range dataCh {
+				structFieldsValues := make([]types.StructValueOption, 0, len(columns))
+				for i, el := range data {
+					structFieldsValues = append(structFieldsValues, types.StructFieldValue(columns[i], types.TextValue(el)))
+				}
+				lastId++
+				structFieldsValues = append(structFieldsValues, types.StructFieldValue(primaryKey, types.Uint64Value(lastId)))
+				rows = append(rows, types.StructValue(
+					structFieldsValues...,
+				))
+			}
+			return s.BulkUpsert(ctx, path.Join(r.driver.Name(), tableName), types.ListValue(rows...))
+		},
+	)
+	return err
+}
+
 func (r *Repository) insertRow(ctx context.Context, tableName string, row []string, primaryKey string, id uint64, columns []string) (err error) {
 	if len(row) != len(columns) {
 		return errors.New("mismatched columns and data length")
