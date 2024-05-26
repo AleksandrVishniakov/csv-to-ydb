@@ -175,3 +175,28 @@ func TestInsertDataWithBulk(t *testing.T) {
 	}()
 	wg.Wait()
 }
+
+func TestUploadFromSource(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	fmt.Println("connecting...")
+
+	db, err := NewYDB(ctx, "grpc://localhost:2136/local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Shutdown(ctx)
+	})
+
+	fmt.Println("db connected")
+
+	repo := NewRepository(db.Driver)
+	const tableName = "user1/table2"
+	reader := NewCSVReader("./csv-for-tests/random_records.csv", ',')
+	err = repo.UploadFromSource(ctx, tableName, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
