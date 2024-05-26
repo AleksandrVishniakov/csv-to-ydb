@@ -15,6 +15,11 @@ import (
 	"github.com/ydb-platform/ydb-go-sdk/v3/table/types"
 )
 
+type SourceReader interface {
+	ReadFromSource(dataCh chan<- []string) error
+	GetColumns() ([]string, error)
+}
+
 type Repository struct {
 	driver *ydb.Driver
 }
@@ -93,7 +98,7 @@ func (r *Repository) InsertDataWithBulk(ctx context.Context, tableName string, d
 			for data := range dataCh {
 				structFieldsValues := make([]types.StructValueOption, 0, len(columns))
 				for i, el := range data {
-					structFieldsValues = append(structFieldsValues, types.StructFieldValue(columns[i], types.TextValue(el)))
+					structFieldsValues = append(structFieldsValues, types.StructFieldValue(columns[i], types.BytesValue([]byte(el))))
 				}
 				lastId++
 				structFieldsValues = append(structFieldsValues, types.StructFieldValue(primaryKey, types.Uint64Value(lastId)))
@@ -230,6 +235,31 @@ func (r *Repository) lastTableId(ctx context.Context, tableName string, primaryK
 	}
 
 	return lastId, nil
+}
+
+func (r *Repository) UploadFromSource(ctx context.Context, tableName string, reader SourceReader) error {
+	columns, err := reader.GetColumns()
+	if err != nil {
+		return err
+	}
+	err = r.CreateTable(ctx, tableName, columns)
+	if err != nil {
+		return err
+	}
+	dataCh := make(chan []string)
+	var errFromSource error
+	go func() {
+		defer close(dataCh)
+		errFromSource = reader.ReadFromSource(dataCh)
+	}()
+	err = r.InsertDataWithBulk(ctx, tableName, dataCh)
+	if err != nil {
+		return err
+	}
+	if errFromSource != nil {
+		return errFromSource
+	}
+	return nil
 }
 
 func columnsToCreateTableOptions(columns []string) []options.CreateTableOption {
